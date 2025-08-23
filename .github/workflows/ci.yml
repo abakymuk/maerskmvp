@@ -137,9 +137,18 @@ jobs:
             npm ci
           fi
 
+      - name: Verify dependencies
+        run: |
+          echo "=== Ruby gems ==="
+          bundle list | grep -E "(propshaft|rails)"
+          echo "=== Node packages ==="
+          yarn list --depth=0 | grep -E "(esbuild|tailwindcss)"
+
       - name: Precompile assets
         env:
           RAILS_ENV: production
+          NODE_ENV: production
           NODE_OPTIONS: --max_old_space_size=2048
+          RAILS_MASTER_KEY: ${{ secrets.RAILS_MASTER_KEY }}
         run: |
-          bin/rails assets:precompile
+          bin/rails assets:precompile --trace
