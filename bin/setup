@@ -1,0 +1,24 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+echo "==> Ensuring Ruby via mise"
+if ! command -v mise >/dev/null 2>&1; then
+  echo "Install mise first: https://mise.jdx.dev/"
+  exit 1
+fi
+eval "$(mise activate bash 2>/dev/null || true)"
+
+echo "==> Bundle install"
+bundle install
+
+echo "==> Setup database"
+bin/rails db:prepare
+
+echo "==> JS deps"
+if command -v yarn >/dev/null 2>&1; then
+  yarn install
+else
+  npm install
+fi
+
+echo "==> Done. Run: bin/dev"

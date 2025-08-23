@@ -1,0 +1,145 @@
+name: CI
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ "**" ]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  RAILS_ENV: test
+  NODE_ENV: development
+  # имя тестовой БД можно оставить дефолтным из database.yml
+  DATABASE_URL: postgres://postgres:postgres@localhost:5432/port_call_board_test
+
+jobs:
+  lint:
+    name: Ruby Lint (RuboCop)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Ruby
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: "3.4.5"
+          bundler-cache: true
+
+      - name: RuboCop
+        run: |
+          bundle exec rubocop --version
+          bundle exec rubocop
+
+  test:
+    name: RSpec + DB
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        ports: ["5432:5432"]
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        options: >-
+          --health-cmd="pg_isready -U postgres"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=5
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install OS deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libpq-dev
+
+      - name: Set up Ruby
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: "3.4.5"
+          bundler-cache: true
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install JS deps
+        run: |
+          if [ -f yarn.lock ]; then
+            corepack enable
+            yarn install --frozen-lockfile
+          else
+            npm ci
+          fi
+
+      - name: Prepare DB
+        env:
+          PGHOST: localhost
+          PGUSER: postgres
+          PGPASSWORD: postgres
+          PGPORT: "5432"
+        run: |
+          bin/rails db:prepare
+
+      - name: Run RSpec
+        run: |
+          bundle exec rspec --format documentation
+
+  security:
+    name: Security (brakeman + bundler-audit)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Ruby
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: "3.4.5"
+          bundler-cache: true
+
+      - name: Brakeman
+        run: |
+          bundle exec brakeman -q -w2
+
+      - name: Bundler Audit (advisory DB)
+        run: |
+          bundle exec bundle audit check --update
+
+  assets:
+    name: Assets build (esbuild + tailwind)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Ruby
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: "3.4.5"
+          bundler-cache: true
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install JS deps
+        run: |
+          if [ -f yarn.lock ]; then
+            corepack enable
+            yarn install --frozen-lockfile
+          else
+            npm ci
+          fi
+
+      - name: Precompile assets
+        env:
+          RAILS_ENV: production
+          NODE_OPTIONS: --max_old_space_size=2048
+        run: |
+          bin/rails assets:precompile
